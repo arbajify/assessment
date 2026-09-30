@@ -1,0 +1,366 @@
+{
+  "name": "Task2 - GitHub Morning Brief (Email)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "573b653e-f214-44ca-8d1b-b101bb166709",
+      "name": "Every Morning 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/search/repositories",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "topic:n8n"
+            },
+            {
+              "name": "sort",
+              "value": "stars"
+            },
+            {
+              "name": "order",
+              "value": "desc"
+            },
+            {
+              "name": "per_page",
+              "value": "10"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9c1c4386-10eb-405e-9c0a-b3c2307b9283",
+      "name": "Search GitHub Repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        80
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "",
+        "subject": "ALERT: Morning brief workflow failed",
+        "message": "=<p>The GitHub morning brief could not be built.</p><pre>{{ JSON.stringify($json.error || $json) }}</pre>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "aa9f6bf1-dd7e-46ce-9ba2-180e4ce25f99",
+      "name": "Alert Email (Failure)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        80
+      ],
+      "webhookId": "e08883f6-dcbd-4220-a394-c79e2c86f230",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "tlwm6aNI49UNJCHk",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const repos = $input.first().json.items || [];\nif (!repos.length) {\n  throw new Error('GitHub returned no repositories');\n}\nconst top5 = repos\n  .sort((a, b) => b.stargazers_count - a.stargazers_count)\n  .slice(0, 5)\n  .map(r => ({\n    name: r.full_name,\n    stars: r.stargazers_count,\n    url: r.html_url,\n    description: r.description || 'No description',\n    language: r.language || 'n/a'\n  }));\nreturn top5.map(r => ({ json: r }));"
+      },
+      "id": "b9d262c5-9af1-41a4-bab4-781cf24177d1",
+      "name": "Top 5 Repos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.name }}/readme",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.raw+json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "readme"
+            }
+          }
+        }
+      },
+      "id": "3972e10c-373d-4915-b54b-c77465a2ee3c",
+      "name": "Get README",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        272
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst originals = $('Top 5 Repos').all();\nconst enriched = $input.all();\nlet failed = 0;\nconst rows = originals.map((o, i) => {\n  const r = o.json;\n  const e = enriched[i] ? enriched[i].json : {};\n  const readme = typeof e.readme === 'string' ? e.readme : '';\n  if (!readme) failed++;\n  const snippet = readme\n    ? esc(readme.replace(/\\s+/g, ' ').slice(0, 200)) + '...'\n    : 'README unavailable';\n  return '<li><b><a href=\"' + r.url + '\">' + esc(r.name) + '</a></b> - stars: ' + r.stars + ' (' + esc(r.language) + ')<br>' + esc(r.description) + '<br><i>' + snippet + '</i></li>';\n});\nconst topStars = originals.length ? originals[0].json.stars : 0;\nconst warning = failed ? '<p><b>Note:</b> README fetch failed for ' + failed + ' repo(s).</p>' : '';\nconst html = '<h2>Daily GitHub Brief: topic n8n</h2><ol>' + rows.join('') + '</ol>' + warning;\nreturn [{ json: { html, topStars, failed } }];"
+      },
+      "id": "e8c31ded-3e06-4f28-85bb-09b6361b9ffa",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        272
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "b2000000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.topStars }}",
+              "rightValue": 1000,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5ab73b3a-7874-471d-a7c1-4435958a620c",
+      "name": "Stars Threshold Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "",
+        "subject": "[HOT] GitHub Brief: top repo above 1000 stars",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "2da422f4-3895-4da8-83d4-daff2edc9624",
+      "name": "Send Hot Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        416
+      ],
+      "webhookId": "13a96aba-aa1b-4b12-a407-c967e0846f65",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "tlwm6aNI49UNJCHk",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "arbajahmad1089@gmail.com",
+        "subject": "GitHub Brief: quiet day (top repo 1000 stars or fewer)",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "53ddf9c9-b5a8-4284-96d0-668a0521d5e2",
+      "name": "Send Normal Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        608
+      ],
+      "webhookId": "bac421e9-151e-40d4-a405-02a93c380dec",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "tlwm6aNI49UNJCHk",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every Morning 8 AM": {
+      "main": [
+        [
+          {
+            "node": "Search GitHub Repos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search GitHub Repos": {
+      "main": [
+        [
+          {
+            "node": "Top 5 Repos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Email (Failure)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top 5 Repos": {
+      "main": [
+        [
+          {
+            "node": "Get README",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Email (Failure)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get README": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Stars Threshold Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Email (Failure)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stars Threshold Check": {
+      "main": [
+        [
+          {
+            "node": "Send Hot Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Normal Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timezone": "Asia/Kolkata"
+  },
+  "versionId": "b72f7b04-f05a-463d-9ffe-60e7b10b943f",
+  "meta": {
+    "instanceId": "7bb15e9dce1da2f27c294a271ebffc8843d3307f9104e00f76839eba89758565"
+  },
+  "nodeGroups": [
+    {
+      "id": "0d7c8924-a470-4884-968e-48c42326679a",
+      "name": "Build repo digest",
+      "nodeIds": [
+        "3972e10c-373d-4915-b54b-c77465a2ee3c",
+        "e8c31ded-3e06-4f28-85bb-09b6361b9ffa"
+      ],
+      "description": "For the top 5 repos, pulls each README and turns it into one HTML email with snippets"
+    },
+    {
+      "id": "899ad141-ce01-4f9d-aae9-a8b4a024d1ae",
+      "name": "Deliver morning brief",
+      "nodeIds": [
+        "5ab73b3a-7874-471d-a7c1-4435958a620c",
+        "2da422f4-3895-4da8-83d4-daff2edc9624",
+        "53ddf9c9-b5a8-4284-96d0-668a0521d5e2"
+      ],
+      "description": "Emails the digest, flagged as HOT when the top repo has over 1,000 stars"
+    }
+  ],
+  "id": "SSwxC6VfAW2iXW8w",
+  "tags": []
+}
